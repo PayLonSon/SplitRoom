@@ -11,3 +11,5 @@
 
 ## 部署
 Settings → Pages → Deploy from a branch → `main` / `(root)`。
+
+完整功能與邏輯請見 [SPEC.md](SPEC.md)。
