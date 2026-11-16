@@ -91,7 +91,7 @@ code.big{display:block;font-size:30px;letter-spacing:6px;text-align:center;paddi
   <section id="home">
     <header class="top">
       <h1>分帳房</h1>
-      <p class="sub">資料存在你的手機裡・開房間就能像桌遊一樣大家一起記</p>
+      <p class="sub">資料存在你的手機裡・開啟共享就能像桌遊一樣大家一起記</p>
     </header>
     <div id="ledgerList" class="list"></div>
     <div class="actions">
@@ -351,8 +351,8 @@ function render(){
   renderStatus();
   $('#roomBar').innerHTML = l.code
     ? `<div class="room"><div class="grow"><small>房號・其他人輸入此號加入</small><b>${esc(l.code)}</b></div>
-         <button class="btn small" data-act="share">邀請</button></div>`
-    : `<button class="room-open" data-act="openRoom">開房間・讓大家用自己的手機一起記</button>`;
+         <button class="btn small" data-act="share">邀請</button><button class="btn small" data-act="leaveRoom">停止</button></div>`
+    : `<button class="room-open" data-act="openRoom">${l.lastCode ? '重新開啟共享帳本（房號 ' + esc(l.lastCode) + '）' : '開啟共享帳本・讓大家用自己的手機一起記'}</button>`;
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   $('#fab').classList.toggle('hidden', tab !== 'exp');
   const body = $('#tabBody');
@@ -536,8 +536,11 @@ document.addEventListener('click', ev => {
     },
     retry(){if(l.code && Net.role !== 'host' && Net.role !== 'guest') joinRoom(l);},
     openRoom(){
-      l.code = genCode(); save(); render(); joinRoom(l, true);
-      toast('房間已開好，把房號給朋友');
+      // 之前共享過就沿用同一個房號，朋友不用重新輸入
+      const reuse = !!l.lastCode;
+      l.code = l.lastCode || genCode(); l.lastCode = l.code;
+      closeSheet(); save(); render(); joinRoom(l, !reuse);
+      toast(reuse ? '已重新開啟共享，房號不變' : '共享已開啟，把房號給朋友');
     },
     share(){
       const url = location.origin + location.pathname + '?room=' + l.code;
@@ -572,7 +575,11 @@ document.addEventListener('click', ev => {
       sheet(`<h3>${esc(l.name)}</h3>
         <button class="menu-btn" data-act="exportData">匯出資料（備份 / 傳給沒網路的人）</button>
         <button class="menu-btn" data-act="importData">匯入資料（合併到此帳本）</button>
-        ${l.code ? '<button class="menu-btn" data-act="leaveRoom">離開房間（資料保留在本機）</button>' : ''}
+        ${l.code ? '<button class="menu-btn" data-act="share">邀請朋友加入（房號 ' + esc(l.code) + '）</button><button class="menu-btn" data-act="leaveRoom">停止共享（資料保留在本機）</button>'
+                 : '<button class="menu-btn" data-act="openRoom">開啟共享帳本</button>'}
+        ${l.lastCode && !l.code ? '<button class="menu-btn" data-act="newCode">換一個新房號（舊房號作廢）</button>' : ''}
+        <button class="menu-btn danger" data-act="clearExp">清空帳目（保留成員）</button>
+        <button class="menu-btn danger" data-act="clearAll">清空整本（帳目＋成員）</button>
         <button class="menu-btn danger" data-act="delLedger">刪除此帳本</button>
         <p class="small muted" style="margin-top:14px">資料只存在這支手機的瀏覽器裡。清除瀏覽器資料會一併刪除，建議定期匯出備份。</p>`);
     },
@@ -595,8 +602,26 @@ document.addEventListener('click', ev => {
       }catch(e){toast('格式不正確');}
     },
     leaveRoom(){
-      if(!confirm('離開房間？之後不再同步，資料仍保留在本機。')) return;
-      l.code = null; leaveNet(); closeSheet(); commit();
+      if(!confirm('停止共享？之後不再同步，資料仍保留在本機，可隨時用同一房號重新開啟。')) return;
+      l.lastCode = l.code; l.code = null; leaveNet(); closeSheet(); commit();
+    },
+    newCode(){
+      if(!confirm('換新房號後，朋友要用新房號才能加入。確定？')) return;
+      l.lastCode = null; closeSheet(); save(); render(); toast('已作廢舊房號，下次開啟會產生新房號');
+    },
+    clearExp(){
+      const es = activeExpenses(l);
+      if(!es.length){toast('目前沒有帳目'); return;}
+      if(!confirm(`清空「${l.name}」的 ${es.length} 筆帳目？成員會保留。${l.code ? '\n房間裡其他人的帳本也會一起清空。' : ''}`)) return;
+      const t = now(); es.forEach(e => l.expenses[e.id] = {...e, del: true, u: t});
+      closeSheet(); tab = 'exp'; commit(); toast('帳目已清空');
+    },
+    clearAll(){
+      if(!confirm(`清空「${l.name}」的所有帳目和成員？${l.code ? '\n房間裡其他人的帳本也會一起清空。' : ''}`)) return;
+      const t = now();
+      activeExpenses(l).forEach(e => l.expenses[e.id] = {...e, del: true, u: t});
+      activeMembers(l).forEach(m => l.members[m.id] = {...m, del: true, u: t});
+      closeSheet(); tab = 'mem'; commit(); toast('帳本已清空');
     },
     delLedger(){
       if(!confirm(`刪除「${l.name}」？此動作無法復原（只刪除這支手機上的資料）。`)) return;
@@ -622,8 +647,9 @@ function openLedger(id){
   else if(Net.role !== 'off') leaveNet();
 }
 function joinByCode(code){
-  let l = Object.values(S.ledgers).find(x => x.code === code);
-  if(!l){l = newLedger('房間 ' + code, code, 0); save();} // nameU=0 → 會採用房主的帳本名稱
+  let l = Object.values(S.ledgers).find(x => x.code === code) || Object.values(S.ledgers).find(x => x.lastCode === code);
+  if(l && !l.code){l.code = code; save();}
+  if(!l){l = newLedger('房間 ' + code, code, 0); l.lastCode = code; save();} // nameU=0 → 會採用房主的帳本名稱
   openLedger(l.id);
 }
 
