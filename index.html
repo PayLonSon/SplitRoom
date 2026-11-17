@@ -83,6 +83,17 @@ h4{margin:16px 20px 8px;font-size:14px;color:var(--muted);font-weight:600}
 .menu-btn.danger{color:var(--warn)}
 #toast{position:fixed;left:50%;bottom:100px;transform:translateX(-50%);background:#1d2628;color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:30;max-width:90vw;text-align:center}
 #toast.show{opacity:.95}
+/* 使用說明 */
+.intro{text-align:center;padding:4px 4px 0}
+.intro .ico{font-size:52px;line-height:1;margin:6px 0 10px}
+.intro h3{margin:0 0 10px!important}
+.intro p{margin:0 0 8px;color:var(--muted);line-height:1.7;font-size:15px}
+.intro ul{text-align:left;margin:4px 0 8px;padding-left:22px;line-height:1.8;font-size:15px}
+.intro .demo{background:#f7f4ec;border-radius:12px;padding:10px 12px;margin:10px 0 4px;text-align:left;font-size:14px;line-height:1.7}
+.dots{display:flex;justify-content:center;gap:6px;margin:16px 0 14px}
+.dots i{width:7px;height:7px;border-radius:50%;background:var(--line)}
+.dots i.on{background:var(--acc);width:20px;border-radius:4px}
+.help-link{border:0;background:none;color:var(--acc);font-weight:600;font-size:14px;padding:8px 0 0}
 code.big{display:block;font-size:30px;letter-spacing:6px;text-align:center;padding:10px;font-weight:800}
 </style>
 </head>
@@ -92,6 +103,7 @@ code.big{display:block;font-size:30px;letter-spacing:6px;text-align:center;paddi
     <header class="top">
       <h1>分帳房</h1>
       <p class="sub">資料存在你的手機裡・開啟共享就能像桌遊一樣大家一起記</p>
+      <button class="help-link" data-act="intro">ⓘ 使用說明</button>
     </header>
     <div id="ledgerList" class="list"></div>
     <div class="actions">
@@ -440,7 +452,7 @@ function renderMem(l){
 
 /* ========== 記一筆 表單 ========== */
 function sheet(html){$('#sheetCard').innerHTML = html; $('#sheet').classList.remove('hidden');}
-function closeSheet(){$('#sheet').classList.add('hidden'); F = null;}
+function closeSheet(){$('#sheet').classList.add('hidden'); F = null; if(!S.seenIntro && $('.intro')){S.seenIntro = true; save();}}
 function openExp(id){
   const l = cur(), ms = activeMembers(l);
   if(!ms.length){toast('請先新增成員'); tab = 'mem'; render(); return;}
@@ -549,6 +561,10 @@ document.addEventListener('click', ev => {
       else copy(text + '\n' + url);
     },
     addExp(){openExp(null);},
+    intro(){openIntro(0);},
+    introNext(){openIntro(introStep + 1);},
+    introPrev(){openIntro(introStep - 1);},
+    introDone,
     closeSheet,
     saveExp,
     delExp(){
@@ -573,6 +589,7 @@ document.addEventListener('click', ev => {
     },
     menu(){
       sheet(`<h3>${esc(l.name)}</h3>
+        <button class="menu-btn" data-act="intro">使用說明</button>
         <button class="menu-btn" data-act="exportData">匯出資料（備份 / 傳給沒網路的人）</button>
         <button class="menu-btn" data-act="importData">匯入資料（合併到此帳本）</button>
         ${l.code ? '<button class="menu-btn" data-act="share">邀請朋友加入（房號 ' + esc(l.code) + '）</button><button class="menu-btn" data-act="leaveRoom">停止共享（資料保留在本機）</button>'
@@ -653,6 +670,37 @@ function joinByCode(code){
   openLedger(l.id);
 }
 
+/* ========== 使用說明（工具介紹） ========== */
+const INTRO = [
+  {ico:'🧾', title:'歡迎使用分帳房', html:`<p>出遊、聚餐、合租時，大家輪流先付錢，<br>最後幫你算出<b>誰要給誰多少錢</b>。</p>
+    <ul><li>免註冊、免安裝，打開網頁就能用</li><li>資料只存在你的手機裡</li><li>可以開房間，大家用自己的手機一起記</li></ul>`},
+  {ico:'👥', title:'1. 建立帳本、加入成員', html:`<p>首頁按「<b>＋ 新帳本</b>」，例如「墾丁三天兩夜」。</p>
+    <p>到「<b>成員</b>」分頁輸入每個要分帳的人（記得包含自己）。</p>`},
+  {ico:'✍️', title:'2. 記一筆', html:`<p>按下方「<b>＋ 記一筆</b>」，填三件事：</p>
+    <ul><li><b>金額</b>與項目（晚餐、計程車…）</li><li><b>誰先付錢</b></li><li><b>分給哪些人</b>（預設全員，可取消沒參加的人）</li></ul>
+    <p>點已記的帳目可以修改或刪除。</p>`},
+  {ico:'💸', title:'3. 看結算', html:`<p>「<b>結算</b>」分頁會直接列出轉帳清單，筆數最少。</p>
+    <div class="demo">晚餐 $1,000：A 先付，A、B、C 分<br>計程車 $300：B 先付，B、C 分<br>→ <b>C 給 A $483、B 給 A $183</b></div>
+    <p>可一鍵複製結果貼到群組。</p>`},
+  {ico:'🎲', title:'4. 開房間一起記', html:`<p>帳本頁按「<b>開啟共享帳本</b>」會得到 6 碼房號。</p>
+    <ul><li>朋友在首頁「<b>加入房間</b>」輸入房號，或點你分享的邀請連結</li><li>每個人記的帳會即時同步</li><li>有人離線也沒關係，連上後自動合併</li></ul>
+    <p class="small">共享需要網路；資料在手機之間直接傳送。</p>`},
+  {ico:'🔒', title:'5. 資料與隱私', html:`<p>帳本存在這支手機的瀏覽器裡，不會上傳到伺服器。</p>
+    <ul><li>清除瀏覽器資料會一起刪除，重要帳本請用選單「<b>匯出資料</b>」備份</li><li>知道房號的人都能加入並修改，分帳結束可「停止共享」並換新房號</li><li>右上角「⋯」也有<b>清空帳目</b>、<b>清空整本</b></li></ul>`}
+];
+let introStep = 0;
+function openIntro(step){
+  introStep = step || 0; F = null;
+  const st = INTRO[introStep], last = introStep === INTRO.length - 1;
+  sheet(`<div class="intro"><div class="ico">${st.ico}</div><h3>${st.title}</h3>${st.html}</div>
+    <div class="dots">${INTRO.map((_, i) => `<i class="${i === introStep ? 'on' : ''}"></i>`).join('')}</div>
+    <div class="row gap">
+      ${introStep ? '<button class="btn" data-act="introPrev">上一步</button>' : '<button class="btn" data-act="introDone">略過</button>'}
+      <button class="btn primary" data-act="${last ? 'introDone' : 'introNext'}">${last ? '開始使用' : '下一步'}</button>
+    </div>`);
+}
+function introDone(){S.seenIntro = true; save(); closeSheet();}
+
 /* ========== 啟動 ========== */
 load();
 const qRoom = new URLSearchParams(location.search).get('room');
@@ -662,6 +710,7 @@ if(qRoom && /^[A-Z0-9]{6}$/i.test(qRoom)){
 } else if(S.cur && S.ledgers[S.cur]){
   openLedger(S.cur);
 } else renderHome();
+if(!S.seenIntro) openIntro(0); // 第一次使用自動顯示介紹
 </script>
 </body>
 </html>
